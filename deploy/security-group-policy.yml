@@ -1,0 +1,37 @@
+---
+apiVersion: vpcresources.k8s.aws/v1beta1
+kind: SecurityGroupPolicy
+metadata:
+  name: concourse-k8s-worker
+
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: worker.k8s.concourse-ci.org
+      app.kubernetes.io/component: worker
+
+  securityGroups:
+    groupIds:
+      # TEMP Concourse K8s Worker
+      - sg-043bf900ffc79316d
+      # EKS Pod Security Group
+      - sg-075281afe3a546118
+
+---
+apiVersion: vpcresources.k8s.aws/v1beta1
+kind: SecurityGroupPolicy
+metadata:
+  name: concourse-k8s-pod
+
+spec:
+  podSelector:
+    matchExpression:
+      - key: worker.k8s.concourse-ci.org/node-id
+        operator: Exists
+
+  securityGroups:
+    groupIds:
+      # TEMP Concourse K8s Pod
+      - sg-0f353041f8f8ba653
+      # EKS Pod Security Group
+      - sg-075281afe3a546118

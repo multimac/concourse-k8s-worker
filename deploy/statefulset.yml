@@ -1,0 +1,219 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: concourse-k8s-worker
+  labels:
+    app.kubernetes.io/name: worker.k8s.concourse-ci.org
+    app.kubernetes.io/component: worker
+
+spec:
+  serviceName: concourse-k8s-worker
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: worker.k8s.concourse-ci.org
+      app.kubernetes.io/component: worker
+
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: worker.k8s.concourse-ci.org
+        app.kubernetes.io/component: worker
+
+    spec:
+      nodeName: ip-172-17-196-27.ec2.internal
+      serviceAccountName: concourse-k8s-worker
+
+      imagePullSecrets:
+        - name: awsecr-secret
+
+      containers:
+        - name: baggage-claim
+          image: 695420715719.dkr.ecr.us-east-1.amazonaws.com/concourse/infrastructure-global/concourse-k8s-worker@sha256:3408ed87f1e2e9e8ee446464bf1d690d0da762a215912209cd893f76213c7c8c
+
+          args:
+            - --log-level=debug
+
+            - --overlay-dir=/csi-data-dir/overlay
+            - --volume-dir=/csi-data-dir/volumes
+
+          ports:
+            - containerPort: 7788
+              name: baggage-claim
+
+          securityContext:
+            privileged: true
+
+          volumeMounts:
+            - name: csi-data-dir
+              mountPath: /csi-data-dir
+              mountPropagation: Bidirectional
+
+        - name: beacon
+          image: 695420715719.dkr.ecr.us-east-1.amazonaws.com/concourse/infrastructure-global/concourse-k8s-worker@sha256:aaebe66142306c1407ee62b960ce4d71cdb55ebf5a1a2b3091b364642aac519a
+
+          args:
+            - --log-level=debug
+
+            - --built-in-resource=/usr/local/concourse/resource-types/registry-image/resource_metadata.json
+
+            - --baggage-claim-address=http://localhost:7788
+            - --garden-address=http://localhost:7777
+
+            - --tsa-host=web.concourse.service.consul.internal.onemodel.co:2222
+            - --tsa-public-key=/worker-keys/tsa-key
+            - --tsa-worker-private-key=/worker-keys/worker-key
+
+            - --name=$(KUBE_NODE_NAME)
+            - --tag=kubernetes
+            - --version=2.3
+
+          env:
+            - name: KUBE_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+
+            - name: KUBE_POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+
+          volumeMounts:
+            - name: worker-data
+              mountPath: /worker-keys
+
+        - name: csi-driver
+          image: 695420715719.dkr.ecr.us-east-1.amazonaws.com/concourse/infrastructure-global/concourse-k8s-worker@sha256:49542a525cc2cbc6b66e0ce873a36be632a28e8ee39d36eccebdf555b42165ee
+
+          args:
+            - --log-level=debug
+
+            - --baggage-claim-address=http://localhost:7788
+
+            - --csi-socket=$(CSI_ENDPOINT)
+            - --node-id=$(KUBE_NODE_NAME)
+
+          env:
+            - name: CSI_ENDPOINT
+              value: /csi/csi.sock
+
+            - name: KUBE_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+
+          securityContext:
+            privileged: true
+
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: healthz
+
+            failureThreshold: 5
+
+            initialDelaySeconds: 30
+            periodSeconds: 2
+            timeoutSeconds: 3
+
+          volumeMounts:
+            - name: mountpoint-dir
+              mountPath: /var/lib/kubelet/pods
+              mountPropagation: Bidirectional
+            - name: socket-dir
+              mountPath: /csi
+
+            - name: csi-data-dir
+              mountPath: /csi-data-dir
+              mountPropagation: HostToContainer
+
+        - name: garden
+          image: 695420715719.dkr.ecr.us-east-1.amazonaws.com/concourse/infrastructure-global/concourse-k8s-worker@sha256:dd75f78655958b0105dbc29b7df2a3a3a978f8f3eac4d4ee50c2c07937e0b9e4
+
+          args:
+            - --log-level=debug
+
+            - --namespace=$(KUBE_POD_NAMESPACE)
+            - --node-id=$(KUBE_NODE_NAME)
+            - --pod-service-account=concourse-k8s-pod
+
+            - --baggage-claim-address=http://localhost:7788
+            - --init-image=695420715719.dkr.ecr.us-east-1.amazonaws.com/concourse/infrastructure-global/concourse-k8s-worker@sha256:8b1dbcc9b37247e87e380fc335bda573b1fcbe91fd27bfdf0518a76162c968d4
+
+          env:
+            - name: KUBE_POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+
+            - name: KUBE_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+
+          ports:
+            - containerPort: 7777
+              name: garden
+
+        - name: node-driver-registrar
+          image: k8s.gcr.io/sig-storage/csi-node-driver-registrar:v2.5.0
+
+          args:
+            - --v=5
+
+            - --csi-address=/csi/csi.sock
+            - --kubelet-registration-path=/var/lib/kubelet/plugins/baggageclaim.worker.k8s.concourse-ci.org/csi.sock
+
+          securityContext:
+            privileged: true
+
+          env:
+            - name: KUBE_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: spec.nodeName
+
+          volumeMounts:
+            - name: registration-dir
+              mountPath: /registration
+            - name: socket-dir
+              mountPath: /csi
+
+        - name: liveness-probe
+          image: k8s.gcr.io/sig-storage/livenessprobe:v2.6.0
+
+          args:
+            - --csi-address=/csi/csi.sock
+
+          ports:
+            - containerPort: 9808
+              name: healthz
+
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+
+      volumes:
+        - name: mountpoint-dir
+          hostPath:
+            path: /var/lib/kubelet/pods
+            type: DirectoryOrCreate
+        - name: registration-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins_registry
+            type: Directory
+        - name: socket-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins/baggageclaim.worker.k8s.concourse-ci.org
+            type: DirectoryOrCreate
+
+        - name: csi-data-dir
+          hostPath:
+            path: /var/lib/baggageclaim.worker.k8s.concourse-ci.org-data
+            type: DirectoryOrCreate
+        - name: worker-data
+          configMap:
+            name: worker-keys

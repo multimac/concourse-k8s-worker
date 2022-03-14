@@ -1,0 +1,20 @@
+FROM concourse/concourse:7.7.0 AS concourse
+
+FROM golang:1.17 AS build
+
+WORKDIR /source
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN go build -o bin/beacon cmd/beacon/main.go
+
+FROM debian
+
+RUN mkdir -p /usr/local/concourse/resource-types
+COPY --from=concourse \
+    /usr/local/concourse/resource-types /usr/local/concourse/resource-types
+
+COPY --from=build /source/bin/beacon /beacon
+ENTRYPOINT ["/beacon"]

@@ -1,0 +1,22 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: concourse-worker-temp
+
+resources:
+  - cluster-role.yml
+  - csi-driver.yml
+  - pod-security-policy.yml
+  - role.yml
+  - security-group-policy.yml
+  - service-account.yml
+  - statefulset.yml
+
+configMapGenerator:
+  - name: worker-keys
+    files:
+      - data/tsa-key
+      - data/worker-key
+
+    options:
+      disableNameSuffixHash: true
