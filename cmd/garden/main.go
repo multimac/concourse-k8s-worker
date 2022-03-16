@@ -26,7 +26,7 @@ type Opts struct {
 	Namespace       string `long:"namespace" required:"true" description:"Kubernetes namespace to monitor for pod."`
 	PodName         string `long:"pod-name" required:"true" description:"Name of this pod."`
 	WorkerName      string `long:"worker-name" required:"true" description:"Name of this worker."`
-	WorkerLabelName string `long:"worker-label-name" default:"baggageclaim.worker.k8s.concourse-ci.org/name" description:"Name of the label to add to the pod containing the worker's name"`
+	WorkerLabelName string `long:"worker-label-name" default:"k8s.concourse-ci.org/worker" description:"Name of the label to add to the pod containing the worker's name"`
 }
 
 func main() {

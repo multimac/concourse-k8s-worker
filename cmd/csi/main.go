@@ -18,7 +18,7 @@ type Opts struct {
 	Logger flag.Lager
 
 	BaggageClaimAddress string `long:"baggage-claim-address" required:"true" description:"Address on which the Baggage Claim API for this node is being served."`
-	CsiDriverName       string `long:"csi-driver-name" default:"baggageclaim.worker.k8s.concourse-ci.org" description:"Name of the CSI driver."`
+	CsiDriverName       string `long:"csi-driver-name" default:"baggageclaim.k8s.concourse-ci.org" description:"Name of the CSI driver."`
 	CsiSocket           string `long:"csi-socket" default:"/tmp/csi.sock" description:"Unix socket to listen on for CSI gRPC service."`
 	InitBinPath         string `long:"init-bin-path" default:"/usr/local/concourse/bin/init" description:"Path to the 'init' binary used to keep a Pod alive while commands are being executed on it."`
 	NodeId              string `long:"node-id" required:"true" description:"ID of the node running the driver."`

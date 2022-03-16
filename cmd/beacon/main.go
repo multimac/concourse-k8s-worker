@@ -61,6 +61,7 @@ func main() {
 
 	atcWorker := opts.Worker.Worker()
 	atcWorker.Platform = "linux"
+	atcWorker.Runtime = "kubernetes"
 
 	atcWorker.ResourceTypes = make([]atc.WorkerResourceType, len(opts.BuiltInResources))
 	for i, file := range opts.BuiltInResources {
