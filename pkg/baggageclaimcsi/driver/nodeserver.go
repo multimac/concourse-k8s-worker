@@ -56,7 +56,7 @@ func (driver *BaggageClaimDriver) NodePublishVolume(ctx context.Context, req *cs
 	}
 
 	var sourcePath string
-	if handle, found := req.GetVolumeContext()["baggageclaim.worker.k8s.concourse-ci.org/handle"]; found {
+	if handle, found := req.GetVolumeContext()["baggageclaim.k8s.concourse-ci.org/handle"]; found {
 		vol, found, err := driver.client.LookupVolume(ctx, handle)
 		if err != nil {
 			driver.logger.Error("failed-to-lookup-volume", err)
@@ -69,7 +69,7 @@ func (driver *BaggageClaimDriver) NodePublishVolume(ctx context.Context, req *cs
 		}
 
 		sourcePath = vol.Path()
-	} else if _, found := req.GetVolumeContext()["baggageclaim.worker.k8s.concourse-ci.org/init-binary"]; found {
+	} else if _, found := req.GetVolumeContext()["baggageclaim.k8s.concourse-ci.org/init-binary"]; found {
 		sourcePath = driver.config.InitBinPath
 	} else {
 		return nil, status.Error(codes.InvalidArgument, "missing 'handle' or 'init-binary' keys in volume context")
