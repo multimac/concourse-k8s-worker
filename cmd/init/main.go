@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"reflect"
 	"syscall"
 	"time"
 
@@ -16,8 +17,9 @@ import (
 type Opts struct {
 	Logger flag.Lager
 
-	Interval    time.Duration `long:"interval" default:"5s" description:"Interval at which to print messages indicating the program is still waiting for a client to attach."`
-	SkipWaiting bool          `long:"skip-waiting" description:"Skip the process of waiting for a client to attach."`
+	SignalMessage string        `long:"signal-message" default:"client-attached" description:"Message to wait to be sent via stdin to indicate the client has attached."`
+	Interval      time.Duration `long:"interval" default:"5s" description:"Interval at which to print messages indicating the program is still waiting for a client to attach."`
+	SkipWaiting   bool          `long:"skip-waiting" description:"Skip the process of waiting for a client to attach."`
 }
 
 func main() {
@@ -49,26 +51,64 @@ func main() {
 	}
 
 	if !opts.SkipWaiting {
-		logger.Info("waiting-for-attach")
 		go func() {
+			logWaiting := func() {
+				logger.Info("waiting-for-attach", lager.Data{
+					"expected-message": opts.SignalMessage,
+				})
+			}
+
+			logWaiting()
+
 			ticker := time.NewTicker(opts.Interval)
 			for range ticker.C {
-				logger.Info("waiting-for-attach")
+				logWaiting()
 			}
 		}()
 
-		scanner := bufio.NewScanner(os.Stdin)
-		for scanner.Scan() {
-			if scanner.Text() == "attached" {
-				break
-			}
+		expectedMsg := []byte(opts.SignalMessage)
 
-			logger.Debug("unknown-line-received", lager.Data{
-				"line": scanner.Text(),
+		// Minimum size of the reader buffer is 16 bytes, but we expect a newline
+		// to be present so the minimum signal message length is actually 15 bytes
+		if len(expectedMsg) < 15 {
+			logger.Fatal("signal-message-too-short", nil, lager.Data{
+				"minimum-signal-message-length": 15,
+				"given-signal-message-length":   len(expectedMsg),
 			})
 		}
 
-		logger.Info("runtime-attached-executing-step", lager.Data{
+		reader := bufio.NewReaderSize(os.Stdin, len(expectedMsg)+1)
+		if reader.Size() != len(expectedMsg)+1 {
+			logger.Fatal("buffer-too-large-allocated", nil, lager.Data{
+				"expected-size": len(expectedMsg) + 1,
+				"actual-size":   reader.Size(),
+			})
+		}
+
+		for {
+			line, prefix, err := reader.ReadLine()
+			if err != nil {
+				logger.Fatal("error-reading-stdin", err)
+			}
+
+			if prefix {
+				logger.Debug("partial-line-received", lager.Data{
+					"line": line,
+				})
+				continue
+			}
+
+			if !reflect.DeepEqual(line, expectedMsg) {
+				logger.Debug("unexpected-line-received", lager.Data{
+					"line": line,
+				})
+				continue
+			}
+
+			break
+		}
+
+		logger.Debug("runtime-attached-executing-step", lager.Data{
 			"command": args,
 		})
 	}
