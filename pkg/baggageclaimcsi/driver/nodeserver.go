@@ -42,19 +42,6 @@ func (driver *BaggageClaimDriver) NodePublishVolume(ctx context.Context, req *cs
 		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("unable to create mount directory: %s", err))
 	}
 
-	stat, err := os.Stat(targetPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			if err = os.Mkdir(targetPath, 0750); err != nil {
-				return nil, fmt.Errorf("unable to create mount point '%s': %w", targetPath, err)
-			}
-		} else {
-			return nil, fmt.Errorf("failed to check target path: %w", err)
-		}
-	} else if !stat.IsDir() {
-		return nil, fmt.Errorf("target path is not a directory, '%s'", targetPath)
-	}
-
 	var sourcePath string
 	if handle, found := req.GetVolumeContext()["baggageclaim.k8s.concourse-ci.org/handle"]; found {
 		vol, found, err := driver.client.LookupVolume(ctx, handle)
@@ -73,6 +60,36 @@ func (driver *BaggageClaimDriver) NodePublishVolume(ctx context.Context, req *cs
 		sourcePath = driver.config.InitBinPath
 	} else {
 		return nil, status.Error(codes.InvalidArgument, "missing 'handle' or 'init-binary' keys in volume context")
+	}
+
+	sourceStat, err := os.Stat(sourcePath)
+	if err != nil {
+		return nil, fmt.Errorf("unable to stat source path")
+	}
+
+	targetStat, err := os.Stat(targetPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			if sourceStat.IsDir() {
+				if err = os.Mkdir(targetPath, 0750); err != nil {
+					return nil, fmt.Errorf("unable to create mount point '%s': %w", targetPath, err)
+				}
+			} else {
+				file, err := os.Create(targetPath)
+				if err != nil {
+					return nil, fmt.Errorf("unable to create mount point '%s': %w", targetPath, err)
+				}
+
+				err = file.Close()
+				if err != nil {
+					return nil, fmt.Errorf("failed closing file at mount point: %w", err)
+				}
+			}
+		} else {
+			return nil, fmt.Errorf("failed to check target path: %w", err)
+		}
+	} else if targetStat.IsDir() != sourceStat.IsDir() {
+		return nil, fmt.Errorf("attempting to bind file to folder (or vice versa), '%s'", targetPath)
 	}
 
 	driver.logger.Debug("binding-path-to-pod", lager.Data{
