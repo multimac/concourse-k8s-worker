@@ -17,10 +17,12 @@ import (
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/klog"
 )
 
 type Opts struct {
-	Logger flag.Lager
+	Logger       flag.Lager
+	KlogLogLevel *klog.Level `long:"klog-log-level" default:"2" description:"Verbosity of the klog logger, used by the Kubernetes libraries."`
 
 	BindAddress     string `long:"bind-address" default:"tcp://:7777" description:"Address on which to serve the Garden API."`
 	Namespace       string `long:"namespace" required:"true" description:"Kubernetes namespace to monitor for pod."`
@@ -45,6 +47,10 @@ func main() {
 
 	logger, _ := opts.constructLogger()
 	logger.Info("initializing")
+
+	if opts.KlogLogLevel != nil {
+		opts.KlogLogLevel.Set(opts.KlogLogLevel.String())
+	}
 
 	gardenUrl, err := url.Parse(opts.BindAddress)
 	if err != nil {
