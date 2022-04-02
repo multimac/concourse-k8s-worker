@@ -1,13 +1,13 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
-	"reflect"
+	"os/signal"
+	"os/user"
+	"strconv"
 	"syscall"
-	"time"
 
 	"code.cloudfoundry.org/lager"
 	"github.com/concourse/flag"
@@ -17,9 +17,11 @@ import (
 type Opts struct {
 	Logger flag.Lager
 
-	SignalMessage string        `long:"signal-message" default:"client-attached" description:"Message to wait to be sent via stdin to indicate the client has attached."`
-	Interval      time.Duration `long:"interval" default:"5s" description:"Interval at which to print messages indicating the program is still waiting for a client to attach."`
-	SkipWaiting   bool          `long:"skip-waiting" description:"Skip the process of waiting for a client to attach."`
+	Sleep bool `long:"sleep"`
+
+	Dir  string   `long:"dir"`
+	Env  []string `long:"env"`
+	User string   `long:"user"`
 }
 
 func main() {
@@ -37,6 +39,17 @@ func main() {
 
 	logger, _ := opts.constructLogger()
 
+	if opts.Sleep {
+		exitSignal := make(chan os.Signal, 1)
+		signal.Notify(exitSignal, syscall.SIGINT, syscall.SIGTERM)
+
+		logger.Info("waiting-for-signal")
+		<-exitSignal
+
+		logger.Info("signal-received")
+		return
+	}
+
 	if len(args) == 0 {
 		logger.Fatal("no-command-given", nil)
 	}
@@ -50,70 +63,31 @@ func main() {
 		})
 	}
 
-	if !opts.SkipWaiting {
-		go func() {
-			logWaiting := func() {
-				logger.Info("waiting-for-attach", lager.Data{
-					"expected-message": opts.SignalMessage,
-				})
-			}
-
-			logWaiting()
-
-			ticker := time.NewTicker(opts.Interval)
-			for range ticker.C {
-				logWaiting()
-			}
-		}()
-
-		expectedMsg := []byte(opts.SignalMessage)
-
-		// Minimum size of the reader buffer is 16 bytes, but we expect a newline
-		// to be present so the minimum signal message length is actually 15 bytes
-		if len(expectedMsg) < 15 {
-			logger.Fatal("signal-message-too-short", nil, lager.Data{
-				"minimum-signal-message-length": 15,
-				"given-signal-message-length":   len(expectedMsg),
-			})
+	if opts.User != "" {
+		u, err := user.Lookup(opts.User)
+		if err != nil {
+			logger.Fatal("lookup-user", err)
 		}
 
-		reader := bufio.NewReaderSize(os.Stdin, len(expectedMsg)+1)
-		if reader.Size() != len(expectedMsg)+1 {
-			logger.Fatal("buffer-too-large-allocated", nil, lager.Data{
-				"expected-size": len(expectedMsg) + 1,
-				"actual-size":   reader.Size(),
-			})
+		uid, err := strconv.Atoi(u.Uid)
+		if err != nil {
+			logger.Fatal("parse-uid", err)
 		}
 
-		for {
-			line, prefix, err := reader.ReadLine()
-			if err != nil {
-				logger.Fatal("error-reading-stdin", err)
-			}
-
-			if prefix {
-				logger.Debug("partial-line-received", lager.Data{
-					"line": line,
-				})
-				continue
-			}
-
-			if !reflect.DeepEqual(line, expectedMsg) {
-				logger.Debug("unexpected-line-received", lager.Data{
-					"line": line,
-				})
-				continue
-			}
-
-			break
+		err = syscall.Setuid(uid)
+		if err != nil {
+			logger.Fatal("set-uid", err)
 		}
-
-		logger.Debug("runtime-attached-executing-step", lager.Data{
-			"command": args,
-		})
 	}
 
-	err = syscall.Exec(args[0], args, os.Environ())
+	if opts.Dir != "" {
+		err := syscall.Chdir(opts.Dir)
+		if err != nil {
+			logger.Fatal("chdir", err)
+		}
+	}
+
+	err = syscall.Exec(args[0], args, append(os.Environ(), opts.Env...))
 	logger.Fatal("exec-failed", err)
 }
 
