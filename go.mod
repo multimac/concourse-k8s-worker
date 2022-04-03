@@ -127,4 +127,4 @@ require (
 	sigs.k8s.io/yaml v1.3.0 // indirect
 )
 
-replace github.com/concourse/concourse => github.com/multimac/concourse v1.6.1-0.20220316100239-20434e0e748a
+replace github.com/concourse/concourse => github.com/multimac/concourse v1.6.1-0.20220403044114-08c81141d188
